@@ -38,6 +38,9 @@ python -m http.server 8000
 First run shows the upload view. **Season 1 starts in** sets the calendar year
 of your first season (default 2001) — later seasons follow automatically
 (S2 = year+1, …). Changing it later re-numbers every season via Apply year.
+The **Points system** setting (presets + custom table) recomputes every
+season's standings from race positions; Reset restores each season's
+original table. Both settings persist in the browser and in backup JSONs.
 After loading saves the page reloads into the full app; your data stays in
 the browser (localStorage + IndexedDB backup).
 

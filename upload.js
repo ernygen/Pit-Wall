@@ -122,11 +122,20 @@ function badgesFor(seasons) {
   });
   return out;
 }
-function persist(seasons, startYear) {
-  var data = { v: 1, startYear: startYear || storedYear(), seasons: seasons, badges: badgesFor(seasons), gencss: genCSS(seasons) };
+function persist(seasons, startYear, custom, orig) {
+  var m = {};
+  try { m = lsGet() || {}; } catch (e) {}
+  if (custom === undefined) custom = (m.customScoring === undefined ? null : m.customScoring);
+  if (orig === undefined) orig = m.origScoring || {};
+  var data = { v: 1, startYear: startYear || storedYear(), customScoring: custom, origScoring: orig, seasons: seasons, badges: badgesFor(seasons), gencss: genCSS(seasons) };
   lsSet(data);
   idb.set(LS_KEY, data);
   return data;
+}
+function meta() {
+  var d = {};
+  try { d = lsGet() || {}; } catch (e) {}
+  return { custom: (d.customScoring === undefined ? null : d.customScoring), orig: d.origScoring || {} };
 }
 /* Re-number every stored season from a new start year (S1 = year, S2 = year+1, …). */
 function reyear(seasons, startYear) {
@@ -161,6 +170,8 @@ window.showUploadHome = function () {
   if (!app) return;
   var n = (window.SEASONS || []).length;
   var tot = (window.SEASONS || []).reduce(function (a, s) { return a + (s.completed || 0); }, 0);
+  var m = meta();
+  var eff = m.custom || ((window.SEASONS || [])[0] && (window.SEASONS || [])[0].scoring) || (P.POINTS || [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]);
   app.innerHTML =
     '<section class="panel"><h2>Drop your save, get the table <small>Team Principal</small></h2>' +
     '<p class="muted">Drop your career\'s <code>season*.json</code> files below — e.g. ' +
@@ -172,6 +183,16 @@ window.showUploadHome = function () {
     '<input id="uw-year" type="number" min="1900" max="2100" step="1" value="' + storedYear() + '" style="width:110px;font:700 14px var(--fb);padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surf);color:var(--ink)">' +
     '<button class="btn ghost" id="uw-apply-year">Apply year</button>' +
     '<span class="muted" id="uw-year-hint">later seasons follow automatically</span></div>' +
+    '<div class="lbl" style="margin:14px 0 6px">Points system <span class="muted">recomputed for every season, from race positions</span></div>' +
+    '<div class="ctrl" id="uw-presets">' +
+    '<button class="btn ghost sm" data-p="modern">Modern Top 10</button>' +
+    '<button class="btn ghost sm" data-p="extended">Extended Top 12</button>' +
+    '<button class="btn ghost sm" data-p="classic8">Classic Top 8</button>' +
+    '<button class="btn ghost sm" data-p="classic6">Classic Top 6</button></div>' +
+    '<div class="ctrl"><input id="uw-points" spellcheck="false" autocomplete="off" value="' + esc(eff.join(',')) + '" style="flex:1;min-width:220px;font:700 14px var(--fb);padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surf);color:var(--ink)">' +
+    '<button class="btn ghost" id="uw-apply-points">Apply table</button>' +
+    '<button class="btn ghost" id="uw-reset-points">Reset</button></div>' +
+    '<div class="muted" id="uw-points-msg"></div>' +
     '<div class="drop" id="uw-drop" role="button" tabindex="0" aria-label="Upload save files">' +
     '<div class="big">Drag &amp; drop files here</div>' +
     '<div class="small">or click to select season*.json files (several at once) — or a previously downloaded backup JSON</div>' +
@@ -206,6 +227,47 @@ window.showUploadHome = function () {
       location.reload();
     } else if (hint) {
       hint.textContent = 'saved — season 1 will start in ' + y;
+    }
+  });
+  function pointsMsg(t) {
+    var el = document.getElementById('uw-points-msg');
+    if (el) el.textContent = t;
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#uw-presets button'), function (b) {
+    b.addEventListener('click', function () {
+      var p = (P.PRESETS || {})[b.getAttribute('data-p')];
+      if (p) document.getElementById('uw-points').value = p.join(',');
+    });
+  });
+  document.getElementById('uw-apply-points').addEventListener('click', function () {
+    var v = P.validScoring(document.getElementById('uw-points').value);
+    if (!v.ok) { pointsMsg(v.error); return; }
+    if ((window.SEASONS || []).length) {
+      P.applyScoring(window.SEASONS, v.arr);
+      var mm = meta();
+      persist(window.SEASONS.slice(), storedYear(), v.arr, mm.orig);
+      location.reload();
+    } else {
+      var d = lsGet() || {};
+      d.customScoring = v.arr;
+      lsSet(d); idb.set(LS_KEY, d);
+      pointsMsg('Saved — the table will apply when you upload save files.');
+    }
+  });
+  document.getElementById('uw-reset-points').addEventListener('click', function () {
+    var mm = meta();
+    var seasons = window.SEASONS || [];
+    if (seasons.length) {
+      seasons.forEach(function (s) {
+        if (s && s.seasonNo && mm.orig[s.seasonNo]) s.scoring = mm.orig[s.seasonNo].slice();
+      });
+      persist(seasons.slice(), storedYear(), null, mm.orig);
+      location.reload();
+    } else {
+      var d = lsGet() || {};
+      d.customScoring = null;
+      lsSet(d); idb.set(LS_KEY, d);
+      pointsMsg('Reset — original tables will be used.');
     }
   });
   var back = document.getElementById('uw-back');
@@ -253,18 +315,31 @@ function handleFiles(list) {
     backups.forEach(function (b) {
       if (b.data && !Array.isArray(b.data) && b.data.startYear) startYear = b.data.startYear;
     });
+    var mm = meta();
+    var orig = mm.orig, custom = mm.custom;
     var merged = window.SEASONS || [];
     backups.forEach(function (b) {
       var arr = Array.isArray(b.data) ? b.data : b.data.seasons;
+      var bOrig = (!Array.isArray(b.data) && b.data.origScoring) || {};
+      Object.keys(bOrig).forEach(function (k) { orig[k] = bOrig[k]; });
+      (arr || []).forEach(function (s) {
+        if (s && s.seasonNo && !orig[s.seasonNo] && Array.isArray(s.scoring)) orig[s.seasonNo] = s.scoring.slice();
+      });
       merged = mergeSeasons(merged, arr);
     });
-    if (saves.length) merged = mergeSeasons(merged, P.parseFiles(saves, startYear));
+    if (saves.length) {
+      var fresh = P.parseFiles(saves, startYear);
+      var fOrig = P.captureOrig(fresh);
+      Object.keys(fOrig).forEach(function (k) { orig[k] = fOrig[k]; });
+      merged = mergeSeasons(merged, fresh);
+    }
     if (!merged.length) {
       msg('<div class="err-box">No valid save found. Make sure you dropped <b>season*.json</b> files or a backup JSON.</div>');
       return;
     }
     merged = reyear(merged, startYear);
-    persist(merged, startYear);
+    if (custom) P.applyScoring(merged, custom);
+    persist(merged, startYear, custom, orig);
     location.reload();
   });
 }

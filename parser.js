@@ -437,5 +437,43 @@
       .map(function (k) { return bySeason[k]; });
   }
 
-  return { POINTS: POINTS, START_YEAR: START_YEAR, parseSeasonFile: parseSeasonFile, parseFiles: parseFiles, standings: standings, trackInfo: trackInfo, normName: normName, ccFlag: ccFlag };
+  // ---- custom scoring helpers (settings) ----
+  // "25,18,15,..." metnini doğrula -> {ok:true, arr} / {ok:false, error}
+  function validScoring(str) {
+    var parts = String(str || '').split(/[,;\s]+/).filter(function (x) { return x !== ''; });
+    if (!parts.length) return { ok: false, error: 'Enter at least one points value.' };
+    if (parts.length < 2) return { ok: false, error: 'Enter at least two values (win + second place).' };
+    if (parts.length > 24) return { ok: false, error: 'Maximum 24 positions.' };
+    var arr = [];
+    for (var i = 0; i < parts.length; i++) {
+      var n = parseInt(parts[i], 10);
+      if (isNaN(n) || n < 0 || n > 500) return { ok: false, error: 'Values must be numbers 0–500.' };
+      if (i && n > arr[i - 1]) return { ok: false, error: 'Values must not increase down the order.' };
+      arr.push(n);
+    }
+    return { ok: true, arr: arr };
+  }
+  // Taze parse edilmiş sezonlardan orijinal skor tablolarını topla {seasonNo: [...]}
+  function captureOrig(seasons) {
+    var out = {};
+    (seasons || []).forEach(function (s) {
+      if (s && s.seasonNo && Array.isArray(s.scoring) && s.scoring.length) out[s.seasonNo] = s.scoring.slice();
+    });
+    return out;
+  }
+  // Özel tabloyu tüm sezonlara uygula (yerinde değiştirir, aynı diziyi döndürür)
+  function applyScoring(seasons, arr) {
+    (seasons || []).forEach(function (s) {
+      if (s) s.scoring = arr.slice();
+    });
+    return seasons;
+  }
+  var PRESETS = {
+    modern: [25, 18, 15, 12, 10, 8, 6, 4, 2, 1],
+    extended: [25, 18, 15, 12, 10, 8, 6, 5, 4, 3, 2, 1],
+    classic8: [10, 8, 6, 5, 4, 3, 2, 1],
+    classic6: [10, 6, 4, 3, 2, 1]
+  };
+
+  return { POINTS: POINTS, START_YEAR: START_YEAR, PRESETS: PRESETS, validScoring: validScoring, captureOrig: captureOrig, applyScoring: applyScoring, parseSeasonFile: parseSeasonFile, parseFiles: parseFiles, standings: standings, trackInfo: trackInfo, normName: normName, ccFlag: ccFlag };
 });
