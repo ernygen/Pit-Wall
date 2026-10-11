@@ -37,14 +37,34 @@ UPLOAD_CSS = """.drop{border:2px dashed var(--line);border-radius:10px;padding:3
 .file b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .file .ok{color:var(--good);font-weight:800}.file .err{color:var(--bad);font-weight:800}
 .err-box{border:1.5px solid var(--bad);border-radius:8px;padding:10px 14px;font-size:13px;margin-top:12px}
+img.bd{object-fit:contain}
 code{background:var(--surf2);padding:1px 6px;border-radius:4px;font-size:13px;box-shadow:inset 0 0 0 1px var(--line)}"""
+
+# badge(): prefer game logo files served through window.BADGES (set from
+# logos/ at upload time); fall back to Pit Wall's embedded badge CSS.
+BADGE_ANCHOR = "const badge=(id,cls='',yr)=>`<span class=\"bd ${cls} bd-${bdid(id,yr)}\"></span>`;"
+BADGE_REPLACEMENT = ("const badge=(id,cls='',yr)=>{const _u=(window.BADGES||{})[bdid(id,yr)]||(window.BADGES||{})[id];"
+  "return _u?`<img class=\"bd ${cls}\" src=\"${_u}\" alt=\"\" loading=\"lazy\" onerror=\"this.remove()\">`"
+  ":`<span class=\"bd ${cls} bd-${bdid(id,yr)}\"></span>`;};")
+
+
+def default_src():
+    here = HERE
+    cands = [os.path.join(os.path.dirname(here), 'Pit Wall.html'),
+             r'C:\Users\Eren Aygen\Downloads\Pit Wall.html']
+    for c in cands:
+        if os.path.exists(c):
+            return c
+    return cands[0]
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--src', default=os.path.join(os.path.dirname(HERE), 'Pit Wall.html'))
+    ap.add_argument('--src', default=None)
     ap.add_argument('--out', default=os.path.join(HERE, 'index.html'))
     args = ap.parse_args()
+    if not args.src:
+        args.src = default_src()
 
     with io.open(args.src, encoding='utf-8') as f:
         html = f.read()
@@ -70,6 +90,10 @@ def main():
     assert pat2.search(app), 'boot anchor not found'
     app = pat2.sub('\nif(!SEASONS.length||!SEASONS[st.y]){showUploadHome();}else{render();}', app, count=1)
 
+    # --- override 3: badge() prefers window.BADGES logo files ---
+    assert app.count(BADGE_ANCHOR) == 1, 'badge anchor found %d times' % app.count(BADGE_ANCHOR)
+    app = app.replace(BADGE_ANCHOR, BADGE_REPLACEMENT)
+
     page = (
         '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
@@ -80,6 +104,7 @@ def main():
         '<style>' + styles[0] + '</style>\n'
         '<style>' + styles[1] + '</style>\n'
         '<style>' + styles[3] + '</style>\n'
+        '<style>' + styles[4] + '</style>\n'
         '<style id="gencss"></style>\n'
         '<style>' + UPLOAD_CSS + '</style>\n'
         '</head>\n<body>\n' + shell + '\n'
