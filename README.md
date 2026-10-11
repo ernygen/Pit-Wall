@@ -1,4 +1,4 @@
-# Pit Wall — Save to Table
+# Pit Wall — Save to Table (Fully done with AI to help a friend)
 
 The **complete Pit Wall app** (every page and feature of `Pit Wall.html`),
 running on **your own Team Principal save files** instead of built-in data.
