@@ -437,8 +437,7 @@
       .map(function (k) { return bySeason[k]; });
   }
 
-  // ---- custom scoring helpers (settings) ----
-  // "25,18,15,..." metnini doğrula -> {ok:true, arr} / {ok:false, error}
+  // ---- custom scoring helpers (settings) ----  // "25,18,15,..." metnini doğrula -> {ok:true, arr} / {ok:false, error}
   function validScoring(str) {
     var parts = String(str || '').split(/[,;\s]+/).filter(function (x) { return x !== ''; });
     if (!parts.length) return { ok: false, error: 'Enter at least one points value.' };
@@ -475,5 +474,22 @@
     classic6: [10, 6, 4, 3, 2, 1]
   };
 
-  return { POINTS: POINTS, START_YEAR: START_YEAR, PRESETS: PRESETS, validScoring: validScoring, captureOrig: captureOrig, applyScoring: applyScoring, parseSeasonFile: parseSeasonFile, parseFiles: parseFiles, standings: standings, trackInfo: trackInfo, normName: normName, ccFlag: ccFlag };
+  // Logo manifestinde takım ara: birebir eşleşme, sonra startswith, sonra contains.
+  // manifest: {normDosyaAdı: dosyaAdı} — build_assets.py üretir.
+  function findLogo(norm, manifest) {
+    if (!norm || !manifest) return null;
+    if (manifest[norm]) return manifest[norm];
+    var keys = Object.keys(manifest), i, k;
+    for (i = 0; i < keys.length; i++) {
+      k = keys[i];
+      if (k.indexOf(norm) === 0 || norm.indexOf(k) === 0) return manifest[k];
+    }
+    for (i = 0; i < keys.length; i++) {
+      k = keys[i];
+      if (k.indexOf(norm) >= 0 || norm.indexOf(k) >= 0) return manifest[k];
+    }
+    return null;
+  }
+
+  return { POINTS: POINTS, START_YEAR: START_YEAR, PRESETS: PRESETS, validScoring: validScoring, captureOrig: captureOrig, applyScoring: applyScoring, findLogo: findLogo, parseSeasonFile: parseSeasonFile, parseFiles: parseFiles, standings: standings, trackInfo: trackInfo, normName: normName, ccFlag: ccFlag };
 });

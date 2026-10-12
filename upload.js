@@ -5,9 +5,21 @@
 'use strict';
 var P = window.PitWallParser;
 var FLAGS = window.PITWALL_FLAGS || [];
-var LOGOS = window.PITWALL_LOGOS || [];
 var LS_KEY = 'pitwall-data';
 var YEAR_KEY = 'pitwall-startyear';
+var PACK_KEY = 'pitwall-logopack';
+var PACKS = window.PITWALL_LOGO_PACKS || {};
+var PACK_LIST = window.PITWALL_LOGO_PACK_LIST || [];
+function defaultPack() { return PACK_LIST.indexOf('2026pfm') >= 0 ? '2026pfm' : (PACK_LIST[0] || ''); }
+function effectivePack(explicit) {
+  if (explicit && PACKS[explicit]) return explicit;
+  var pref = null, d = null;
+  try { pref = localStorage.getItem(PACK_KEY); } catch (e) {}
+  if (pref && PACKS[pref]) return pref;
+  try { d = lsGet(); } catch (e) {}
+  if (d && d.logoPack && PACKS[d.logoPack]) return d.logoPack;
+  return defaultPack();
+}
 function defaultYear() { return (window.PitWallParser && window.PitWallParser.START_YEAR) || 2001; }
 function storedYear() {
   try {
@@ -110,24 +122,27 @@ function genCSS(seasons) {
   });
   return css;
 }
-function badgesFor(seasons) {
+function badgesFor(seasons, pack) {
+  var man = PACKS[pack] || {};
   var out = {}, seen = {};
   seasons.forEach(function (S) {
     (S.teams || []).forEach(function (t) {
       if (!t || !t.id || seen[t.id]) return;
       seen[t.id] = 1;
       var key = t.nameNorm || P.normName(t.name);
-      if (key && LOGOS[key]) out[t.id] = 'logos/' + LOGOS[key];
+      var file = P.findLogo(key, man);
+      if (file) out[t.id] = 'logos/' + encodeURI(pack) + '/' + encodeURI(file);
     });
   });
   return out;
 }
-function persist(seasons, startYear, custom, orig) {
+function persist(seasons, startYear, custom, orig, pack) {
   var m = {};
   try { m = lsGet() || {}; } catch (e) {}
   if (custom === undefined) custom = (m.customScoring === undefined ? null : m.customScoring);
   if (orig === undefined) orig = m.origScoring || {};
-  var data = { v: 1, startYear: startYear || storedYear(), customScoring: custom, origScoring: orig, seasons: seasons, badges: badgesFor(seasons), gencss: genCSS(seasons) };
+  if (pack === undefined) pack = effectivePack(m.logoPack);
+  var data = { v: 2, startYear: startYear || storedYear(), customScoring: custom, origScoring: orig, logoPack: pack, seasons: seasons, badges: badgesFor(seasons, pack), gencss: genCSS(seasons) };
   lsSet(data);
   idb.set(LS_KEY, data);
   return data;
@@ -135,7 +150,7 @@ function persist(seasons, startYear, custom, orig) {
 function meta() {
   var d = {};
   try { d = lsGet() || {}; } catch (e) {}
-  return { custom: (d.customScoring === undefined ? null : d.customScoring), orig: d.origScoring || {} };
+  return { custom: (d.customScoring === undefined ? null : d.customScoring), orig: d.origScoring || {}, pack: effectivePack(d.logoPack) };
 }
 /* Re-number every stored season from a new start year (S1 = year, S2 = year+1, …). */
 function reyear(seasons, startYear) {
@@ -183,6 +198,10 @@ window.showUploadHome = function () {
     '<input id="uw-year" type="number" min="1900" max="2100" step="1" value="' + storedYear() + '" style="width:110px;font:700 14px var(--fb);padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surf);color:var(--ink)">' +
     '<button class="btn ghost" id="uw-apply-year">Apply year</button>' +
     '<span class="muted" id="uw-year-hint">later seasons follow automatically</span></div>' +
+    (PACK_LIST.length ? '<div class="ctrl"><label class="lbl" for="uw-logopack">Logo pack</label>' +
+    '<select id="uw-logopack" style="flex:1;min-width:220px;font:700 14px var(--fb);padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surf);color:var(--ink)">' +
+    PACK_LIST.map(function (p) { return '<option value="' + esc(p) + '"' + (p === meta().pack ? ' selected' : '') + '>' + esc(p) + '</option>'; }).join('') +
+    '</select><span class="muted">team badges are taken from this data pack</span></div>' : '') +
     '<div class="lbl" style="margin:14px 0 6px">Points system <span class="muted">recomputed for every season, from race positions</span></div>' +
     '<div class="ctrl" id="uw-presets">' +
     '<button class="btn ghost sm" data-p="modern">Modern Top 10</button>' +
@@ -227,6 +246,16 @@ window.showUploadHome = function () {
       location.reload();
     } else if (hint) {
       hint.textContent = 'saved — season 1 will start in ' + y;
+    }
+  });
+  var lpSel = document.getElementById('uw-logopack');
+  if (lpSel) lpSel.addEventListener('change', function () {
+    var pack = effectivePack(lpSel.value);
+    try { localStorage.setItem(PACK_KEY, pack); } catch (e) {}
+    if ((window.SEASONS || []).length) {
+      var mm0 = meta();
+      persist(window.SEASONS.slice(), storedYear(), mm0.custom, mm0.orig, pack);
+      location.reload();
     }
   });
   function pointsMsg(t) {
@@ -317,6 +346,16 @@ function handleFiles(list) {
     });
     var mm = meta();
     var orig = mm.orig, custom = mm.custom;
+    // Logo pack: explicit choice wins; otherwise the save's data_pack (first upload).
+    var pref = null;
+    try { pref = localStorage.getItem(PACK_KEY); } catch (e) {}
+    var pack = (pref && PACKS[pref]) ? pref : null;
+    if (!pack && saves.length) {
+      var dp = saves[0].data && saves[0].data.data_pack;
+      if (dp && PACKS[dp]) pack = dp;
+    }
+    if (!pack) pack = mm.pack;
+    try { localStorage.setItem(PACK_KEY, pack); } catch (e2) {}
     var merged = window.SEASONS || [];
     backups.forEach(function (b) {
       var arr = Array.isArray(b.data) ? b.data : b.data.seasons;
@@ -339,7 +378,7 @@ function handleFiles(list) {
     }
     merged = reyear(merged, startYear);
     if (custom) P.applyScoring(merged, custom);
-    persist(merged, startYear, custom, orig);
+    persist(merged, startYear, custom, orig, pack);
     location.reload();
   });
 }
@@ -359,7 +398,18 @@ function addUploadBtn() {
 }
 addUploadBtn();
 if ((window.SEASONS || []).length) {
-  /* data was restored synchronously — the app already booted into it */
+  /* data was restored synchronously — the app already booted into it.
+     v1 stored badges used flat logos/ paths: rebuild them for the logo pack. */
+  var dd = null;
+  try { dd = lsGet(); } catch (e) {}
+  if (dd && dd.v !== 2) {
+    var pk = effectivePack(dd.logoPack);
+    window.BADGES = badgesFor(window.SEASONS, pk);
+    dd.v = 2; dd.seasons = window.SEASONS; dd.badges = window.BADGES;
+    if (!dd.logoPack) dd.logoPack = pk;
+    try { localStorage.setItem(PACK_KEY, pk); } catch (e2) {}
+    lsSet(dd); idb.set(LS_KEY, dd);
+  }
 } else {
   idb.get(LS_KEY).then(function (data) {
     if (data && data.seasons && data.seasons.length) {
